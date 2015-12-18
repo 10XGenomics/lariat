@@ -8,9 +8,9 @@ Lariat generates candidate alignments by calling the BWA C API, then performs th
 
 ## Usage Notes: 
 * Lariat currently requires Go 1.3
-* Lariat currently requires a non standard format for input reads. We recommend using the Lariat build bundled with the 10X Genomics Longranger software (http://software.10xgenomics.com/)
+* Lariat currently requires a non standard format for input reads. We recommend using the Lariat build bundled with the 10X Genomics Long Ranger software (http://software.10xgenomics.com/)
 
-Please contact us if you're interested in using Lariat independently of the Longranger pipeline.
+Please contact us if you're interested in using Lariat independently of the Long Ranger pipeline.
 
 ## Input File Format
 
