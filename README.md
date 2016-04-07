@@ -2,7 +2,7 @@
 
 Lariat is an aligner for barcoded linked reads, produced by the 10X Genomics GemCode™ platform. All the linked reads for a single barcode are aligned simultaneously, with the prior knowledge that the reads arise from a small number of long (10kb - 200kb) molecules. This approach allows reads to be mapped in repetitive regions of the genome.
 
-Lariat is based on the original RFA method developed by Alex Bisharra, Yuling Liu et al in Serafim Batzoglou’s lab at Stanford: [Genome Res. 2015. 25:1570-1580](http://genome.cshlp.org/content/25/10/1570).  In addition to developing the original model for RFA, Alex Bisharra and Yuling Liu both contributed substantially to the Lariat implementation maintained in this repository.
+Lariat is based on the original RFA method developed by Alex Bishara, Yuling Liu et al in Serafim Batzoglou’s lab at Stanford: [Genome Res. 2015. 25:1570-1580](http://genome.cshlp.org/content/25/10/1570).  In addition to developing the original model for RFA, Alex Bishara and Yuling Liu both contributed substantially to the Lariat implementation maintained in this repository.
 
 Lariat generates candidate alignments by calling the BWA C API, then performs the RFA inference to select the final mapping position and MAPQ.
 
