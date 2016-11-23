@@ -17,14 +17,18 @@ type FastQRecord struct {
 	ReadQual1 []byte
 	Read2     []byte
 	ReadQual2 []byte
+    TrimBases []byte
+    TrimQuals []byte
 
 	Barcode10X     []byte
 	Barcode10XQual []byte
+    RawBarcode10X  []byte
 
 	Barcode     []byte
 	BarcodeQual []byte
 
 	ReadInfo string
+	ReadGroupId string
 }
 
 /*
@@ -47,7 +51,6 @@ func SliceCompare(a []byte, b []byte) bool {
 	if len(a) != len(b) {
 		return false
 	}
-
 	for i := 0; i < len(a); i++ {
 		if a[i] != b[i] {
 			return false
@@ -77,7 +80,7 @@ func OpenFastQ(path string) (*FastQReader, error) {
 /*
  * Read a single record from a fastQ file
  */
-func (fqr *FastQReader) ReadOneLine(result *FastQRecord) error {
+func (fqr *FastQReader) ReadOneLine(result *FastQRecord, trim int) error {
 
 	/* Search for the next start-of-record.*/
 	for {
@@ -88,8 +91,13 @@ func (fqr *FastQReader) ReadOneLine(result *FastQRecord) error {
 		}
 		if line[0] == byte('@') {
 			/* Found it! */
-			//result.ReadInfo = strings.TrimSpace(string(line))
-			result.ReadInfo = strings.Fields(string(line[1 : len(line)-1]))[0]
+			fields := strings.Fields(string(line[1 : len(line)-1]))
+			result.ReadInfo = fields[0]
+			if len(fields) < 3 {
+				result.ReadGroupId = "" // no RGID found
+			} else {
+				result.ReadGroupId = fields[2]
+			}
 			break
 		} else {
 			log.Printf("Bad line: %v at %v", string(line), fqr.Line)
@@ -110,11 +118,20 @@ func (fqr *FastQReader) ReadOneLine(result *FastQRecord) error {
 	}
 
 	/* Assign them to the right fields in the FastQRecord struct */
-	result.Read1 = stuff_to_get[0]
-	result.ReadQual1 = stuff_to_get[1]
+    r1 := stuff_to_get[0][trim:]
+    rq := stuff_to_get[1][trim:]
+    tb := stuff_to_get[0][0:trim]
+    tq := stuff_to_get[1][0:trim]
+	result.Read1 = r1
+	result.ReadQual1 = rq
+    result.TrimBases = tb
+    result.TrimQuals = tq
 	result.Read2 = stuff_to_get[2]
 	result.ReadQual2 = stuff_to_get[3]
-	result.Barcode10X = stuff_to_get[4]
+
+    barcodes := strings.Split(string(stuff_to_get[4]), ",")
+    result.Barcode10X = []byte(barcodes[0])
+    result.RawBarcode10X = []byte(barcodes[len(barcodes)-1])
 	result.Barcode10XQual = stuff_to_get[5]
 	result.Barcode = stuff_to_get[6]
 	result.BarcodeQual = stuff_to_get[7]
@@ -133,12 +150,21 @@ func DifferentBarcode(a *FastQRecord, b *FastQRecord) bool {
 	}
 }
 
+func NotWhitelist(a *FastQRecord) bool {
+    for i := 0; i < len(a.Barcode10X); i++ {
+        if a.Barcode10X[i] == '-' {
+            return false
+        }
+    }
+    return true
+}
+
 /*
  * Reaturn an array of all of the reads from the same GEM.
  * "space" may be null or may be the result of a previous call to this function.
  * If present the array will be destructively re-used
  */
-func (fqr *FastQReader) ReadBarcodeSet(space *[]FastQRecord) ([]FastQRecord, error, bool) {
+func (fqr *FastQReader) ReadBarcodeSet(space *[]FastQRecord, trim int) ([]FastQRecord, error, bool) {
 	new_barcode := false
 	if fqr.DefferedError != nil {
 		return nil, fqr.DefferedError, false
@@ -169,7 +195,7 @@ func (fqr *FastQReader) ReadBarcodeSet(space *[]FastQRecord) ([]FastQRecord, err
 	/* Load fastQ records into record_array */
 	for ; index < 30000; index++ {
 		record_array = append(record_array, FastQRecord{})
-		err := fqr.ReadOneLine(&record_array[index])
+		err := fqr.ReadOneLine(&record_array[index], trim)
 
 		if err != nil {
 			/* Something went wrong. If we have data, return it and
@@ -187,7 +213,7 @@ func (fqr *FastQReader) ReadBarcodeSet(space *[]FastQRecord) ([]FastQRecord, err
 			}
 		}
 
-		if DifferentBarcode(&record_array[0], &record_array[index]) {
+		if DifferentBarcode(&record_array[0], &record_array[index]) || (NotWhitelist(&record_array[0]) && index >= 200) {
 			/* Just transitioned to a new GEM. This record needs to
 			 * be defered for next time we're called (since its on the
 			 * _new_ gem).
@@ -196,7 +222,7 @@ func (fqr *FastQReader) ReadBarcodeSet(space *[]FastQRecord) ([]FastQRecord, err
 			*fqr.Pending = record_array[index]
 			new_barcode = true
 			break
-		} else if fqr.LastBarcode != nil && !DifferentBarcode(&record_array[0], fqr.LastBarcode) && index >= 1000 {
+		} else if fqr.LastBarcode != nil && !DifferentBarcode(&record_array[0], fqr.LastBarcode) && index >= 200 {
 			new_barcode = false
 			break
 		}
@@ -205,14 +231,13 @@ func (fqr *FastQReader) ReadBarcodeSet(space *[]FastQRecord) ([]FastQRecord, err
 	if len(record_array) > 0 {
 		fqr.LastBarcode = &record_array[0]
 	}
-
 	//log.Printf("Load %v record %s %s %s %s", index, string(record_array[0].Barcode10X), string(record_array[index].Barcode10X), string(record_array[0].Barcode), string(record_array[index].Barcode))
 	/* Truncate the last record of the array. It is either eroneous and ill defined
 	 * or it belongs to the next GEM.
 	 */
 
 	end := len(record_array)
-	if new_barcode {
+	if new_barcode || fqr.DefferedError == io.EOF {
 		end -= 1
 	} else if fqr.DefferedError != io.EOF {
 		return record_array[0:end], nil, false

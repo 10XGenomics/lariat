@@ -1,23 +1,23 @@
 // Copyright (c) 2015 10X Genomics, Inc. All rights reserved.
 
-package main
+package inference
 
-type OrderedAlignmentMap struct {
+type OrderedMap struct {
 	index         map[int]int //index of a key k
 	reverse_index []int       //key that lives at an index i
-	store         []*Alignment
+	store         []interface{}
 }
 
-func NewOrderedAlignmentMap() *OrderedAlignmentMap {
-	om := &OrderedAlignmentMap{
+func NewOrderedMap() *OrderedMap {
+	om := &OrderedMap{
 		index:         make(map[int]int),
 		reverse_index: []int{},
-		store:         make([]*Alignment, 0),
+		store:         make([]interface{}, 0),
 	}
 	return om
 }
 
-func (om *OrderedAlignmentMap) Get(key int) *Alignment {
+func (om *OrderedMap) Get(key int) interface{} {
 	toRet, ok := om.index[key]
 	if ok {
 		return om.store[toRet]
@@ -25,7 +25,7 @@ func (om *OrderedAlignmentMap) Get(key int) *Alignment {
 	return nil
 }
 
-func (om *OrderedAlignmentMap) Set(key int, val *Alignment) {
+func (om *OrderedMap) Set(key int, val interface{}) {
 	i, ok := om.index[key]
 	if ok {
 		om.store[i] = val
@@ -36,7 +36,7 @@ func (om *OrderedAlignmentMap) Set(key int, val *Alignment) {
 	}
 }
 
-func (om *OrderedAlignmentMap) Delete(key int) {
+func (om *OrderedMap) Delete(key int) {
 	i, ok := om.index[key]
 	if ok {
 		if len(om.store) > 1 {
@@ -50,14 +50,35 @@ func (om *OrderedAlignmentMap) Delete(key int) {
 	}
 }
 
-func (om *OrderedAlignmentMap) Iter() []*Alignment {
+func FixGetForTypeAlignment(val interface{}) *Alignment {
+	if val == nil {
+		return nil
+	}
+	return val.(*Alignment)
+}
+
+func FixGetForTypeOrderedMap(val interface{}) *OrderedMap {
+	if val == nil {
+		return nil
+	}
+	return val.(*OrderedMap)
+}
+
+func FixGetForTypeOrderedAlignmentMap(val interface{}) *OrderedAlignmentMap {
+    if val == nil {
+        return nil
+    }
+    return val.(*OrderedAlignmentMap)
+}
+
+func (om *OrderedMap) Iter() []interface{} {
 	return om.store
 }
 
-func (om *OrderedAlignmentMap) IterKeys() []int {
+func (om *OrderedMap) IterKeys() []int {
 	return om.reverse_index
 }
 
-func (om *OrderedAlignmentMap) Len() int {
+func (om *OrderedMap) Len() int {
 	return len(om.reverse_index)
 }

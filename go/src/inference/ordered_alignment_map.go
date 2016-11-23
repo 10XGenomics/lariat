@@ -1,23 +1,23 @@
 // Copyright (c) 2015 10X Genomics, Inc. All rights reserved.
 
-package main
+package inference
 
-type OrderedMap struct {
+type OrderedAlignmentMap struct {
 	index         map[int]int //index of a key k
 	reverse_index []int       //key that lives at an index i
-	store         []interface{}
+	store         []*Alignment
 }
 
-func NewOrderedMap() *OrderedMap {
-	om := &OrderedMap{
+func NewOrderedAlignmentMap() *OrderedAlignmentMap {
+	om := &OrderedAlignmentMap{
 		index:         make(map[int]int),
 		reverse_index: []int{},
-		store:         make([]interface{}, 0),
+		store:         make([]*Alignment, 0),
 	}
 	return om
 }
 
-func (om *OrderedMap) Get(key int) interface{} {
+func (om *OrderedAlignmentMap) Get(key int) *Alignment {
 	toRet, ok := om.index[key]
 	if ok {
 		return om.store[toRet]
@@ -25,7 +25,7 @@ func (om *OrderedMap) Get(key int) interface{} {
 	return nil
 }
 
-func (om *OrderedMap) Set(key int, val interface{}) {
+func (om *OrderedAlignmentMap) Set(key int, val *Alignment) {
 	i, ok := om.index[key]
 	if ok {
 		om.store[i] = val
@@ -36,7 +36,7 @@ func (om *OrderedMap) Set(key int, val interface{}) {
 	}
 }
 
-func (om *OrderedMap) Delete(key int) {
+func (om *OrderedAlignmentMap) Delete(key int) {
 	i, ok := om.index[key]
 	if ok {
 		if len(om.store) > 1 {
@@ -50,28 +50,14 @@ func (om *OrderedMap) Delete(key int) {
 	}
 }
 
-func FixGetForTypeAlignment(val interface{}) *Alignment {
-	if val == nil {
-		return nil
-	}
-	return val.(*Alignment)
-}
-
-func FixGetForTypeOrderedMap(val interface{}) *OrderedMap {
-	if val == nil {
-		return nil
-	}
-	return val.(*OrderedMap)
-}
-
-func (om *OrderedMap) Iter() []interface{} {
+func (om *OrderedAlignmentMap) Iter() []*Alignment {
 	return om.store
 }
 
-func (om *OrderedMap) IterKeys() []int {
+func (om *OrderedAlignmentMap) IterKeys() []int {
 	return om.reverse_index
 }
 
-func (om *OrderedMap) Len() int {
+func (om *OrderedAlignmentMap) Len() int {
 	return len(om.reverse_index)
 }
