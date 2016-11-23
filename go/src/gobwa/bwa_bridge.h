@@ -1,6 +1,7 @@
 // Copyright (c) 2015 10X Genomics, Inc. All rights reserved.
 
 #include "bwa/bwamem.h"
+#include "bwa/bntseq.h"
 
 typedef struct { // This struct is only used for the convenience of API.
 	int64_t pos;     // forward strand 5'-end mapping position
@@ -35,3 +36,4 @@ extern mem_alnreg_v mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, cons
 extern mem_chain_v mem_chain(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, int len, const uint8_t *seq, void *buf);
 extern mem_aln_t mem_reg2aln(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *pac, int l_seq, const char *seq, const mem_alnreg_t *ar);
 extern int mem_matesw(const mem_opt_t *opt, const bntseq_t *bns, 	const uint8_t *pac, const mem_pestat_t pes[4], const mem_alnreg_t *a, int l_ms, const uint8_t *ms, mem_alnreg_v *ma);
+extern uint8_t* bns_fetch_seq(const bntseq_t *bns, const uint8_t *pac, int64_t *beg, int64_t mid, int64_t *end, int *rid);
