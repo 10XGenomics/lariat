@@ -6,4 +6,4 @@
 	url = https://github.com/davecheney/profile.git
 [submodule "go/src/code.google.com/p/biogo.bam"]
 	path = go/src/code.google.com/p/biogo.bam
-	url = https://github.com:10XGenomics/hts.git
+	url = https://github.com/10XGenomics/hts.git
