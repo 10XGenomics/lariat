@@ -3,7 +3,7 @@
 	url = https://github.com/lh3/bwa.git
 [submodule "go/src/github.com/davecheney/profile"]
 	path = go/src/github.com/davecheney/profile
-	url = git@github.com:davecheney/profile.git
+	url = https://github.com/davecheney/profile.git
 [submodule "go/src/code.google.com/p/biogo.bam"]
 	path = go/src/code.google.com/p/biogo.bam
-	url = git@github.com:10XGenomics/hts.git
+	url = https://github.com:10XGenomics/hts.git
