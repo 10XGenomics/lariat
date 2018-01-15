@@ -42,8 +42,9 @@ type LariatArgs struct {
 	DebugTags             *bool
 	DebugPrintMove        *bool
 	Genome                *string
-    Centromeres           *string
-    Trim                  *int
+	Centromeres           *string
+	Trim                  *int
+        FirstChunk            *bool
 }
 
 type ChainedHit struct {
@@ -60,8 +61,8 @@ type ChainedHit struct {
 	read      *[]byte
 	fastq     *fastqreader.FastQRecord
 	aln       *EasyAlignment
-    trim_seq  *[]byte
-    trim_qual *[]byte
+	trim_seq  *[]byte
+	trim_qual *[]byte
 }
 
 type Alignment struct {
@@ -78,8 +79,8 @@ type Alignment struct {
 	read_qual                         *[]byte
 	sample_index                      *[]byte
 	sample_index_qual                 *[]byte
-    trim_seq                          *[]byte
-    trim_qual                         *[]byte
+	trim_seq                          *[]byte
+	trim_qual                         *[]byte
 	mapq                              int
 	molecule_difference               float64
 	contig                            string
@@ -89,7 +90,7 @@ type Alignment struct {
 	mismatches                        int
 	matches                           int
 	mismatchLocs                      []int
-    mismatchReadLocs                  []int
+	mismatchReadLocs                  []int
 	indels                            int
 	read_id                           int
 	bad_molecule                      bool
@@ -259,11 +260,12 @@ var positionChunkSize *int
 var debugTags *bool
 var debugPrintMove *bool
 var genome *string
-var trimLength  *int
+var trimLength *int
+var firstChunk *bool
 
 type Region struct {
-    start   int
-    end     int
+	start int
+	end   int
 }
 
 var centromeres map[string]Region
@@ -285,9 +287,10 @@ func Lariat(args LariatArgs) {
 	debugTags = args.DebugTags
 	debugPrintMove = args.DebugPrintMove
 	genome = args.Genome
-    centromeres = loadCentromeres(args.Centromeres)
-    trimLength = args.Trim
-    
+	centromeres = loadCentromeres(args.Centromeres)
+	trimLength = args.Trim
+	firstChunk = args.FirstChunk
+
 	// Use worker thread count request on cmdline, or
 	// all CPUs if -threads wasn't specified
 	numCPU := runtime.NumCPU()
@@ -323,7 +326,7 @@ func Lariat(args LariatArgs) {
 	var w *bufio.Writer
 
 	barcode_num := 0
-	bams, err := CreateBAMs(ref, *output, *read_groups, *sample_id, *positionChunkSize, *debugTags)
+	bams, err := CreateBAMs(ref, *output, *read_groups, *sample_id, *positionChunkSize, *debugTags, *firstChunk)
 	if err != nil {
 		panic(err)
 	}
@@ -387,33 +390,33 @@ func Lariat(args LariatArgs) {
 }
 
 func loadCentromeres(filename *string) map[string]Region {
-    file, err := os.Open(*filename)
-    if err != nil {
-        return map[string]Region{}
-    }
-    defer file.Close()
-    scanner := bufio.NewScanner(file)
-    toRet := map[string]Region{}
-    for scanner.Scan() {
-        line := scanner.Text()
-        if strings.HasPrefix(line, "CEN") {
-            tokens := strings.Split(line, "\t")
-            if len(tokens) < 4 {
-                continue
-            }
-            chrom := tokens[1]
-            start , err := strconv.Atoi(tokens[2])
-            if err != nil {
-                continue
-            }
-            end, err := strconv.Atoi(tokens[3])
-            if err != nil {
-                continue
-            }
-            toRet[chrom] = Region{start: start, end: end}
-        }
-    }
-    return toRet
+	file, err := os.Open(*filename)
+	if err != nil {
+		return map[string]Region{}
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	toRet := map[string]Region{}
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "CEN") {
+			tokens := strings.Split(line, "\t")
+			if len(tokens) < 4 {
+				continue
+			}
+			chrom := tokens[1]
+			start, err := strconv.Atoi(tokens[2])
+			if err != nil {
+				continue
+			}
+			end, err := strconv.Atoi(tokens[3])
+			if err != nil {
+				continue
+			}
+			toRet[chrom] = Region{start: start, end: end}
+		}
+	}
+	return toRet
 }
 
 /*
@@ -475,7 +478,14 @@ func DoRFAForOneBarcode(work *WorkUnit,
 
 	positions := tagBestAlignments(alignments, -17)
 
-	//print("considering working on barcode " + string(barcode_reads[0].Barcode10X) + "\n")
+	if len(barcode_reads) > 2 {
+		fmt.Printf("working on barcode %s  num reads: %d  doing RFA: %v  unique_barcode %v \n",
+				string(barcode_reads[0].Barcode10X),
+				len(barcode_reads),
+				worthRunningRFA,
+				work.unique_barcode)
+	}
+
 	if !worthRunningRFA {
 		estimateMapQualities(-1, alignments, nil, config.improper_penalty, stats)
 		markDuplicates(alignments)
@@ -485,7 +495,6 @@ func DoRFAForOneBarcode(work *WorkUnit,
 		return
 	}
 
-	print("working on barcode " + string(barcode_reads[0].Barcode10X) + "\n")
 
 	candidate_molecules := inferMolecules(positions)
 	markBestAlignmentForReadInMolecule(candidate_molecules)
@@ -581,7 +590,7 @@ func setMoleculeDifferences(candidate_molecules []*CandidateMolecule, setBad boo
 func psuedoCountAlignmentScore(aln *Alignment, log_molecule_penalty float64) float64 {
 	psuedoAlignmentLength := 25.0
 	score := 0.0
-	score -= 10.0 //maximum soft clipping penalty
+	score -= 10.0                                                        //maximum soft clipping penalty
 	score -= (float64(len(*aln.read_seq)) - psuedoAlignmentLength) * 0.5 // soft clipping length penalty for 25bp alignment
 	score += log_molecule_penalty
 	return score
@@ -676,37 +685,37 @@ func markDuplicates(alignments [][]*Alignment) {
 }
 
 func updateAlignmentsMoleculeStatus(alignments [][]*Alignment, candidate_molecules []*CandidateMolecule, read_copies_in_active_molecule, read_copies_not_in_active_molecule map[int]int, unique_molecules_active map[int]map[int]bool) {
-    if candidate_molecules != nil {
-        setMoleculeConfidences(candidate_molecules)
-        setMoleculeDifferences(candidate_molecules, false)
+	if candidate_molecules != nil {
+		setMoleculeConfidences(candidate_molecules)
+		setMoleculeDifferences(candidate_molecules, false)
 
-        // #1 update alignment probabilities based on whether they are in an active molecule or not
-        // here we take 2 sources of power. 1 is taht singletons are rare
-        for read_id, alignmentArray := range alignments {
-            for _, alignment := range alignmentArray {
-                is_molecule_active := false
-                if alignment.molecule_id != -1 {
-                    molecule := candidate_molecules[alignment.molecule_id]
-                    is_molecule_active = molecule.active_alignments.Len()-molecule.soft_clipped > 4 && molecule.molecule_confidence > 0.1
-                    alignment.active_molecule = is_molecule_active
-                }
-                if is_molecule_active {
-                    candidate_molecules[alignment.molecule_id].active_molecule = true
-                    read_copies_in_active_molecule[read_id]++ //TODO remove, book keeping
-                    _, has := unique_molecules_active[read_id]
-                    if !has {
-                        unique_molecules_active[read_id] = map[int]bool{}
-                    }
-                    unique_molecules_active[read_id][alignment.molecule_id] = true
-                } else {
-                    read_copies_not_in_active_molecule[read_id]++ //TODO remove, book keeping
-                }
-                if alignment.molecule_id != -1 {
-                    alignment.mapq_data.reads_in_molecule = candidate_molecules[alignment.molecule_id].active_alignments.Len()
-                }
-            }
-        }
-    }
+		// #1 update alignment probabilities based on whether they are in an active molecule or not
+		// here we take 2 sources of power. 1 is taht singletons are rare
+		for read_id, alignmentArray := range alignments {
+			for _, alignment := range alignmentArray {
+				is_molecule_active := false
+				if alignment.molecule_id != -1 {
+					molecule := candidate_molecules[alignment.molecule_id]
+					is_molecule_active = molecule.active_alignments.Len()-molecule.soft_clipped > 4 && molecule.molecule_confidence > 0.1
+					alignment.active_molecule = is_molecule_active
+				}
+				if is_molecule_active {
+					candidate_molecules[alignment.molecule_id].active_molecule = true
+					read_copies_in_active_molecule[read_id]++ //TODO remove, book keeping
+					_, has := unique_molecules_active[read_id]
+					if !has {
+						unique_molecules_active[read_id] = map[int]bool{}
+					}
+					unique_molecules_active[read_id][alignment.molecule_id] = true
+				} else {
+					read_copies_not_in_active_molecule[read_id]++ //TODO remove, book keeping
+				}
+				if alignment.molecule_id != -1 {
+					alignment.mapq_data.reads_in_molecule = candidate_molecules[alignment.molecule_id].active_alignments.Len()
+				}
+			}
+		}
+	}
 }
 
 func appendPsuedocountAlignmentScore(scores []float64, alignmentArray []*Alignment, alignments [][]*Alignment, log_molecule_penalty float64) []float64 {
@@ -880,16 +889,16 @@ func estimateMapQualities(barcode int,
 		scores := []float64{}
 		scores = appendPsuedocountAlignmentScore(scores, alignmentArray, alignments, log_molecule_penalty)
 		total_probability := float64(0)
-        for _, alignment := range alignmentArray {
-            mateArray := alignments[alignment.mate_id]
-            for _, mateAlignment := range mateArray {
-                if alignment.active && mateAlignment.active {
-                    alignment.mate_alignment = mateAlignment
-                    mateAlignment.mate_alignment = alignment
-                }
-            }
-        }
-    
+		for _, alignment := range alignmentArray {
+			mateArray := alignments[alignment.mate_id]
+			for _, mateAlignment := range mateArray {
+				if alignment.active && mateAlignment.active {
+					alignment.mate_alignment = mateAlignment
+					mateAlignment.mate_alignment = alignment
+				}
+			}
+		}
+
 		for _, alignment := range alignmentArray {
 			mateArray := alignments[alignment.mate_id]
 			best_score := -math.MaxFloat64
@@ -966,16 +975,16 @@ func estimateMapQualities(barcode int,
 			moleculeMapq := -10.0 * math.Log10(1.0-(1.0/alignment.sum_move_probability_change)) // method 2: molecule move probability normalization
 			mapq = math.Min(mapq, moleculeMapq)                                                 // take min of both techniques
 			mapq = math.Min(float64(60), mapq)                                                  // cap at q60
-            centromereRegion, ok := centromeres[alignment.contig]
-            start := -1
-            end := -1
-            if ok {
-                start = centromereRegion.start
-                end = centromereRegion.end
-            }
-            if alignment.pos > int64(start) && alignment.pos <= int64(end) {
-                mapq = 0.0
-            }
+			centromereRegion, ok := centromeres[alignment.contig]
+			start := -1
+			end := -1
+			if ok {
+				start = centromereRegion.start
+				end = centromereRegion.end
+			}
+			if alignment.pos > int64(start) && alignment.pos <= int64(end) {
+				mapq = 0.0
+			}
 			alignment.mapq = int(mapq)
 		}
 	}
@@ -1084,7 +1093,7 @@ func worthRunningRFA(barcode_reads []fastqreader.FastQRecord, uniqueBarcode bool
 	if len(bcParts) < 2 {
 		return false
 	}
-	if len(barcode_reads) < 30 {
+	if len(barcode_reads) < 5 {
 		return false
 	}
 	return true
@@ -1498,7 +1507,7 @@ func tagBestAlignments(alignments [][]*Alignment, improper_pair_penalty float64)
 				}
 			}
 			if len(mateAlignments) == 0 {
-				score := float64(alignment.score) + rand.Float64()/2.0
+				score := float64(alignment.score) + random.Float64()/2.0
 				if score > bestScore {
 					bestScore = score
 					bestAlignment = alignment
@@ -1574,7 +1583,7 @@ func GetAlignments(ref *GoBwaReference, settings *GoBwaSettings, barcode_chains 
 				refEnd = chain.pos + 1
 			}
 			mismatchLocs := []int{}
-            mismatchReadLocs := []int{}
+			mismatchReadLocs := []int{}
 			refSeq := ref.GetSeq(alignment.Chrom, refStart, refEnd, alignment.Reversed)
 			refSeqOffset := 0
 			readOffset := 0
@@ -1595,13 +1604,13 @@ func GetAlignments(ref *GoBwaReference, settings *GoBwaSettings, barcode_chains 
 						if readOffset+match >= len(readSeq) {
 							panic(fmt.Sprintf("cigar string represents sequence larger than read?", len(readSeq), alignment.Cigar))
 						}
-						if refSeqOffset+match < len(refSeq) && readOffset+match < len(readSeq) && refSeq[refSeqOffset+match] != readSeq[readOffset + match] {
-                            if alignment.Reversed {
-                                mismatchLocs = append(mismatchLocs, int(refStart) + (len(readSeq) - (refSeqOffset + match)))
-                            } else {
-							    mismatchLocs = append(mismatchLocs, refSeqOffset + int(refStart) + match)
-                            }
-                            mismatchReadLocs = append(mismatchReadLocs, readOffset + match)
+						if refSeqOffset+match < len(refSeq) && readOffset+match < len(readSeq) && refSeq[refSeqOffset+match] != readSeq[readOffset+match] {
+							if alignment.Reversed {
+								mismatchLocs = append(mismatchLocs, int(refStart)+(len(readSeq)-(refSeqOffset+match)))
+							} else {
+								mismatchLocs = append(mismatchLocs, refSeqOffset+int(refStart)+match)
+							}
+							mismatchReadLocs = append(mismatchReadLocs, readOffset+match)
 						}
 					}
 					refSeqOffset += int(alignment.Cigar[k+1])
@@ -1640,8 +1649,8 @@ func GetAlignments(ref *GoBwaReference, settings *GoBwaSettings, barcode_chains 
 				aend = chain.pos + 1
 			}
 
-            trim_seq := &chain.fastq.TrimBases
-            trim_qual := &chain.fastq.TrimQuals
+			trim_seq := &chain.fastq.TrimBases
+			trim_qual := &chain.fastq.TrimQuals
 
 			full_alignment := Alignment{
 				id:                          chain.hit_id,
@@ -1652,7 +1661,7 @@ func GetAlignments(ref *GoBwaReference, settings *GoBwaSettings, barcode_chains 
 				matches:                     matches,
 				mismatches:                  mismatches,
 				mismatchLocs:                mismatchLocs,
-                mismatchReadLocs:            mismatchReadLocs,
+				mismatchReadLocs:            mismatchReadLocs,
 				indels:                      indels,
 				soft_clipped:                soft_clipping,
 				soft_clipped_length:         soft_clipping_length,
@@ -1675,8 +1684,8 @@ func GetAlignments(ref *GoBwaReference, settings *GoBwaSettings, barcode_chains 
 				sum_move_probability_change: 1.0,
 				molecule_confidence:         0.00075 * 0.025,
 				duplicate:                   false,
-                trim_seq:                    trim_seq,
-                trim_qual:                   trim_qual,
+				trim_seq:                    trim_seq,
+				trim_qual:                   trim_qual,
 			}
 
 			full_alignment.log_alignment_probability = scoreAlignment(&full_alignment, nil, 0.0) - *improper_pair_penalty //remove improper pair penalty
@@ -1718,8 +1727,8 @@ func GetChains(ref *GoBwaReference, settings *GoBwaSettings, reads_for_barcode [
 				fastq:     &reads_for_barcode[i],
 				read:      &reads_for_barcode[i].Read1,
 				aln:       &read1_chains[j],
-                trim_seq:  &reads_for_barcode[i].TrimBases,
-                trim_qual: &reads_for_barcode[i].TrimQuals,
+				trim_seq:  &reads_for_barcode[i].TrimBases,
+				trim_qual: &reads_for_barcode[i].TrimQuals,
 			}
 			read1_num++
 			toReturn[len(toReturn)-1] = append(toReturn[len(toReturn)-1], read1_chain_n)
@@ -1727,15 +1736,15 @@ func GetChains(ref *GoBwaReference, settings *GoBwaSettings, reads_for_barcode [
 		}
 		if read1_num == 0 {
 			toReturn[len(toReturn)-1] = append(toReturn[len(toReturn)-1], ChainedHit{
-				read_id: i * 2,
-				mate_id: i*2 + 1,
-				pos:     -1,
-				read1:   true,
-				chain:   nil,
-				fastq:   &reads_for_barcode[i],
-				read:    &reads_for_barcode[i].Read1,
-                trim_seq: &reads_for_barcode[i].TrimBases,
-                trim_qual: &reads_for_barcode[i].TrimQuals,
+				read_id:   i * 2,
+				mate_id:   i*2 + 1,
+				pos:       -1,
+				read1:     true,
+				chain:     nil,
+				fastq:     &reads_for_barcode[i],
+				read:      &reads_for_barcode[i].Read1,
+				trim_seq:  &reads_for_barcode[i].TrimBases,
+				trim_qual: &reads_for_barcode[i].TrimQuals,
 			})
 			hit_num++
 		}

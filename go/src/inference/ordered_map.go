@@ -65,10 +65,10 @@ func FixGetForTypeOrderedMap(val interface{}) *OrderedMap {
 }
 
 func FixGetForTypeOrderedAlignmentMap(val interface{}) *OrderedAlignmentMap {
-    if val == nil {
-        return nil
-    }
-    return val.(*OrderedAlignmentMap)
+	if val == nil {
+		return nil
+	}
+	return val.(*OrderedAlignmentMap)
 }
 
 func (om *OrderedMap) Iter() []interface{} {

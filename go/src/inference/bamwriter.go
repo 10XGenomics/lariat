@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"gobwa"
 	"log"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -42,7 +43,7 @@ type BAMWriter struct {
 	Record  bam.Record
 }
 
-func CreateBAM(ref *gobwa.GoBwaReference, path, read_groups, sample_id string) (*BAMWriter, error) {
+func CreateBAM(ref *gobwa.GoBwaReference, path, read_groups, sample_id string, firstChunk bool) (*BAMWriter, error) {
 	bw := &BAMWriter{}
 	bw.Contigs = make(map[string]*bam.Reference)
 
@@ -57,7 +58,11 @@ func CreateBAM(ref *gobwa.GoBwaReference, path, read_groups, sample_id string) (
 		bw.Contigs[name] = r
 	})
 
-    comments := []byte("@CO\t10x_bam_to_fastq:R1(RX:QX,TR:TQ,SEQ:QUAL)\n@CO\t10x_bam_to_fastq:R2(SEQ:QUAL)\n@CO\t10x_bam_to_fastq:I1(BC:QT)")
+	// Only include the CO headers on the first chunk: avoid having them duplicated during samtools merge
+	comments := []byte("")
+	if firstChunk {
+		comments = []byte("@CO\t10x_bam_to_fastq:R1(RX:QX,TR:TQ,SEQ:QUAL)\n@CO\t10x_bam_to_fastq:R2(SEQ:QUAL)\n@CO\t10x_bam_to_fastq:I1(BC:QT)")
+	}
 	h, err := bam.NewHeader(comments, references)
 
 	if err != nil {
@@ -76,12 +81,12 @@ func CreateBAM(ref *gobwa.GoBwaReference, path, read_groups, sample_id string) (
 		} else {
 			rg, err := bam.NewReadGroup(
 				rg_id, //ID
-				"", //CN
-				"", //DS
-				rg_fields[1] + "." + rg_fields[2], //LB = (input library).(gem group)
-				"", //PG
-				"ILLUMINA", //PL
-				rg_id, //PU: just make same as ID?
+				"",    //CN
+				"",    //DS
+				rg_fields[1]+"."+rg_fields[2], //LB = (input library).(gem group)
+				"",           //PG
+				"ILLUMINA",   //PL
+				rg_id,        //PU: just make same as ID?
 				rg_fields[0], //SM
 				time.Now(),
 				0,
@@ -96,10 +101,10 @@ func CreateBAM(ref *gobwa.GoBwaReference, path, read_groups, sample_id string) (
 
 	// Add a program line for lariat
 	prog := bam.NewProgram(
-		"lariat", // ID
-		"longranger.lariat", // PN
-		strings.Join(os.Args, " "), // CL 
-		"", // PP - no need to indicate previous, since Lariat produces the initial BAM
+		"lariat",                   // ID
+		"longranger.lariat",        // PN
+		strings.Join(os.Args, " "), // CL
+		"",          // PP - no need to indicate previous, since Lariat produces the initial BAM
 		__VERSION__) // VN
 	h.AddProgram(prog)
 
@@ -125,90 +130,56 @@ func (b BAMWriters) getPositionBucketedBamForAlignment(aln *Alignment, unmapped 
 	return b.PositionBucketedBams[aln.contig][aln.pos/int64(b.positionChunkSize)]
 }
 
-func CreateBAMs(ref *gobwa.GoBwaReference, basePath, read_groups, sample_id string, _positionChunkSize int, debugTags bool) (*BAMWriters, error) {
+func CreateBAMs(ref *gobwa.GoBwaReference, basePath, read_groups, sample_id string, _positionChunkSize int, debugTags bool, firstChunk bool) (*BAMWriters, error) {
 	positionChunkSize := int64(_positionChunkSize)
 
-	barcodeSortedBam, err := CreateBAM(ref, basePath+"/bc_sorted_bam.bam", read_groups, sample_id)
+	barcodeSortedBam, err := CreateBAM(ref, basePath+"/bc_sorted_bam.bam", read_groups, sample_id, firstChunk)
 	if err != nil {
 		return nil, err
 	}
 	contigNames, contigLengths := ref.GetReferenceContigsInfo()
-	PositionBucketedBams := make(map[string][]*BAMWriter, len(contigNames))
+	PositionBucketedBams := make(map[string][]*BAMWriter, len(contigNames)+1)
+	var lastBamWriter *BAMWriter = nil
+	var running_size int64 = 0
+	// Only add the @CO headers to the first chunk, so that we don't end up with duplicates
+	var chrFirstChunk bool = firstChunk
 
 	for index, contigName := range contigNames {
-		// Handle small contigs separately
-		if contigLengths[index] < positionChunkSize/4 {
-			continue
-		}
+		chr_size := contigLengths[index]
+		num_chunks := int(math.Ceil(float64(chr_size)/float64(positionChunkSize)))
+		PositionBucketedBams[contigName] = make([]*BAMWriter, num_chunks)
+		indexStr := fmt.Sprintf("%0*d", 6, index)
 
-		offset := int64(0)
-		PositionBucketedBams[contigName] = make([]*BAMWriter, contigLengths[index]/positionChunkSize+int64(1))
-		for chunkIndex := 0; offset < contigLengths[index]; chunkIndex, offset = chunkIndex+1, offset+positionChunkSize {
-
-			indexStr := fmt.Sprintf("%0*d", 6, index)
-			offsetStr := fmt.Sprintf("%0*d", 10, offset)
-			PositionBucketedBams[contigName][chunkIndex], err = CreateBAM(ref, basePath+"/"+indexStr+"-"+contigName+"_"+offsetStr+"_pos_bucketed.bam", read_groups, sample_id)
-			if err != nil {
-				return nil, err
+		if num_chunks > 1 {
+			for chunkIndex := 0; chunkIndex < num_chunks; chunkIndex ++ {
+				offsetStr := fmt.Sprintf("%0*d", 10, int64(chunkIndex)*positionChunkSize)
+				PositionBucketedBams[contigName][chunkIndex], err = CreateBAM(ref, basePath+"/"+indexStr+"-"+contigName+"_"+offsetStr+"_pos_bucketed.bam", read_groups, sample_id, chrFirstChunk)
+				chrFirstChunk = false
+				if err != nil {
+					return nil, err
+				}
 			}
+		} else {
+			if running_size ==0 || running_size + chr_size > positionChunkSize {
+				// use a new chunk and running_size is the size of chr_size
+				lastBamWriter, err = CreateBAM(ref, basePath+"/"+indexStr+"-"+contigName+"_0000000000_pos_bucketed.bam", read_groups, sample_id, chrFirstChunk)
+				chrFirstChunk = false
+				if err != nil {
+					return nil, err
+				}
+				running_size = chr_size
+			} else {
+				running_size += chr_size
+			}
+			if lastBamWriter == nil {
+			        fmt.Println("Panicking!")
+				panic("lastBamWriter uninitilized in CreateBAMs")
+			}
+			PositionBucketedBams[contigName][0] = lastBamWriter
 		}
 	}
 
-	// Group small contigs into a bunch of BAMs
-	ctgGroupSize := int64(0)
-	ctgGroup := make([]string, 0, 0)
-	lastIndex := -1
-	for index, contigName := range contigNames {
-
-		// Large contigs have been dealt with
-		if contigLengths[index] >= positionChunkSize/4 {
-			continue
-		}
-
-		// Small-contig BAMs must carry consecutive contigs.  If there's a large contig interleaved, we need a new BAM file.
-		if ctgGroupSize >= positionChunkSize || (lastIndex > 0 && index-lastIndex > 1) {
-
-			// All the contigs in ctgGroup will dump to this BAM
-			indexStr := fmt.Sprintf("%0*d", 6, lastIndex)
-			offsetStr := fmt.Sprintf("%0*d", 10, 0)
-			newBam, err := CreateBAM(ref, basePath+"/"+indexStr+"-"+"multicontig"+"_"+offsetStr+"_pos_bucketed.bam", read_groups, sample_id)
-
-			if err != nil {
-				return nil, err
-			}
-
-			for _, smallContigName := range ctgGroup {
-				PositionBucketedBams[smallContigName] = make([]*BAMWriter, 1)
-				PositionBucketedBams[smallContigName][0] = newBam
-			}
-
-			ctgGroupSize = int64(0)
-			ctgGroup = make([]string, 0, 0)
-		}
-
-		// Running count of contig sizes for next BAM file
-		ctgGroupSize += contigLengths[index]
-		ctgGroup = append(ctgGroup, contigName)
-		lastIndex = index
-	}
-
-	if ctgGroupSize > 0 {
-
-		indexStr := fmt.Sprintf("%0*d", 6, lastIndex)
-		offsetStr := fmt.Sprintf("%0*d", 10, 0)
-		newBam, err := CreateBAM(ref, basePath+"/"+indexStr+"-"+"multicontig"+"_"+offsetStr+"_pos_bucketed.bam", read_groups, sample_id)
-
-		if err != nil {
-			return nil, err
-		}
-
-		for _, smallContigName := range ctgGroup {
-			PositionBucketedBams[smallContigName] = make([]*BAMWriter, 1)
-			PositionBucketedBams[smallContigName][0] = newBam
-		}
-	}
-
-	unmappedBam, err := CreateBAM(ref, basePath+"/"+"ZZZ_unmapped_pos_bucketed.bam", read_groups, sample_id)
+	unmappedBam, err := CreateBAM(ref, basePath+"/"+"ZZZ_unmapped_pos_bucketed.bam", read_groups, sample_id, firstChunk)
 	if err != nil {
 		return nil, err
 	}
@@ -323,16 +294,29 @@ func (b *BAMWriter) AppendBam(aln *Alignment, primary *Alignment, debugTags bool
 	if aln.mate_id >= 0 {
 		flags |= 1
 		if aln.is_proper {
-			flags |= 0x2
+			if aln == primary {
+				flags |= 0x2
+			} else {
+				if isPair(aln, primary.mate_alignment) {
+					flags |= 0x2
+				}
+			}
 		}
+
 		if primary.mate_alignment.pos == -1 || (!primary.is_proper && primary.mate_alignment.score-17 < 19) {
+			// Mate is unmapped
 			flags |= 0x8
 			b.Record.MatePos = -1
 			b.Record.MateRef = nil
+		} else {
+			// Mate mapped
+			if primary.mate_alignment.reversed {
+				flags |= 0x20
+			}
+			b.Record.MateRef = b.Contigs[primary.mate_alignment.contig]
+			b.Record.MatePos = int(primary.mate_alignment.pos)
 		}
-		if primary.mate_alignment.reversed {
-			flags |= 0x20
-		}
+
 		if aln.read1 {
 			flags |= 0x40
 		} else {
@@ -342,18 +326,21 @@ func (b *BAMWriter) AppendBam(aln *Alignment, primary *Alignment, debugTags bool
 			flags |= 0x400
 		}
 
-		b.Record.MateRef = b.Contigs[primary.mate_alignment.contig]
-		b.Record.MatePos = int(primary.mate_alignment.pos)
 		if primary.mate_alignment.pos == -1 {
 			b.Record.MateRef = nil
+			b.Record.TempLen = 0
 		} else if aln == primary {
-			if aln.contig == aln.mate_alignment.contig {
+			if aln.contig == aln.mate_alignment.contig && (primary.is_proper || primary.mate_alignment.score-17 >= 19) {
 				if aln.reversed {
 					b.Record.TempLen = -int(aln.aend - aln.mate_alignment.pos)
 				} else {
 					b.Record.TempLen = int(aln.mate_alignment.aend - aln.pos)
 				}
+			} else {
+				b.Record.TempLen = 0
 			}
+		} else {
+			b.Record.TempLen = 0
 		}
 	} else {
 		b.Record.MatePos = -1
@@ -401,107 +388,113 @@ func (b *BAMWriter) AppendBam(aln *Alignment, primary *Alignment, debugTags bool
 	b.Record.Cigar = FixCigar(cigar)
 	b.Record.Seq = bam.NewNybbleSeq(seq)
 	b.Record.Qual = fixQual(qual)
-   
+
 	barcode := strings.Split(string(*aln.barcode), "-")
 	aux := []bam.Aux{}
 	qx := auxify_string([]byte("QX"), *aln.barcode_qual)
 	rx := auxify_string([]byte("RX"), *aln.raw_barcode)
-    aux = append(aux, bam.Aux(rx))
-    aux = append(aux, bam.Aux(qx))
+	aux = append(aux, bam.Aux(rx))
+	aux = append(aux, bam.Aux(qx))
+
 	bc := auxify_string([]byte("BC"), *aln.sample_index)
 	qt := auxify_string([]byte("QT"), *aln.sample_index_qual)
-	as := auxify_float("AS", float32(aln.score))
-    if aln.read1 {
-        tx := auxify_string([]byte("TR"), *aln.trim_seq)
-        tq := auxify_string([]byte("TQ"), *aln.trim_qual)
-        aux = append(aux, bam.Aux(tx))
-        aux = append(aux, bam.Aux(tq))
-    }
-    if len(*aln.sample_index) > 1 {
-        aux = append(aux, bam.Aux(bc))
-        aux = append(aux, bam.Aux(qt))
-    }
-    if len(*aln.read_group) > 0 {
-        rg := auxify_string([]byte("RG"), []byte(*aln.read_group))
-        aux = append(aux, bam.Aux(rg))
-    }
-	if aln.mapq_data != nil {
-        
-		xs := auxify_float("XS", float32(aln.mapq_data.second_best_score))
-        aux = append(aux, bam.Aux(xs)) 
-        as = auxify_float("AS", float32(aln.mapq_data.score))
-        xc_string := ""
-        if aln.mapq_data.second_best != nil {
-            mismatchReadLocs := aln.mapq_data.second_best.mismatchReadLocs
-            mismatchLocs := aln.mapq_data.second_best.mismatchLocs
-            for i := 0; i < len(mismatchReadLocs); i++ {
-                readLoc := mismatchReadLocs[i]
-                refLoc := mismatchLocs[i]
-                xc_string += strconv.FormatInt(int64(refLoc), 10) + "," + strconv.FormatInt(int64(readLoc), 10) + ",1;"
-            }
-        }
-        xc := auxify_string([]byte("XC"), []byte(xc_string))
-        aux = append(aux, bam.Aux(xc))
-        ac_string := ""
-        mismatchReadLocs := aln.mismatchReadLocs
-        mismatchLocs := aln.mismatchLocs
-        for i := 0; i < len(mismatchReadLocs); i++ {
-            readLoc := mismatchReadLocs[i]
-            refLoc := mismatchLocs[i]
-            ac_string += strconv.FormatInt(int64(refLoc), 10) + "," + strconv.FormatInt(int64(readLoc), 10) + ",1;"
-        }  
-        ac := auxify_string([]byte("AC"), []byte(ac_string))
-        aux = append(aux, bam.Aux(ac))
-	}
-    aux = append(aux, bam.Aux(as))
-    second_best_active_molecule := 0
-    if aln.mapq_data != nil && aln.mapq_data.second_best != nil && aln.mapq_data.second_best.active_molecule {
-        second_best_active_molecule = 1
-    }
-    xm := auxify_string([]byte("XM"), []byte(strconv.FormatInt(int64(second_best_active_molecule), 10)))
-    aux = append(aux, bam.Aux(xm))
-    active_molecule := "0"
-    if aln.active_molecule {
-        active_molecule = "1"
-    }
-    am := auxify_string([]byte("AM"), []byte(active_molecule))
-    aux = append(aux, bam.Aux(am))
-    tandem := 0
-    if aln.mapq_data != nil && aln.mapq_data.second_best != nil && aln.molecule_id == aln.mapq_data.second_best.molecule_id {
-        tandem = 1
-    }
-    xt := auxify_int("XT", tandem)
-    aux = append(aux, bam.Aux(xt))
+	as := auxify_int("AS", aln.score)
 
-    var secondaryAlignment *Alignment
-    if aln.secondary != nil {
-        secondaryAlignment = aln.secondary
-    } else if aln.primary != nil {
-        secondaryAlignment = aln.primary
-    }
-    if secondaryAlignment != nil {
-        var strand string
-        cigarBytes := secondaryAlignment.cigar
-        if secondaryAlignment.reversed {
-            strand = "-"
-            cigarBytes = reverseCigar(cigarBytes) 
-        } else { strand = "+" }
-        cigar := ""
-        indelLength := 0
-        for cig := 0; cig < len(cigarBytes); cig += 2 {
-            cigChar := ""
-            if cigarBytes[cig] == 3 && aln.secondary != nil {
-                cigChar = "H"
-            } else {
-                cigChar = cigarCharacter[cigarBytes[cig]]
-            }
-            if cigarBytes[cig] == 1 || cigarBytes[cig] == 2 { indelLength += int(cigarBytes[cig + 1]) }
-            cigar += strconv.FormatInt(int64(cigarBytes[cig + 1]),10) + cigChar
-        }
-        secondaryAlignmentString := []byte(secondaryAlignment.contig + "," + strconv.FormatInt(int64(secondaryAlignment.pos),10) + "," + strand + "," + cigar + "," + strconv.FormatInt(int64(secondaryAlignment.mapq),10) + "," + strconv.FormatInt(int64(len(secondaryAlignment.mismatchLocs) + indelLength ),10) + ";") 
-        sa := auxify_string([]byte("SA"), secondaryAlignmentString)
-        aux = append(aux, bam.Aux(sa))
-    }
+	if aln.read1 {
+		tx := auxify_string([]byte("TR"), *aln.trim_seq)
+		tq := auxify_string([]byte("TQ"), *aln.trim_qual)
+		aux = append(aux, bam.Aux(tx))
+		aux = append(aux, bam.Aux(tq))
+	}
+	if len(*aln.sample_index) > 1 {
+		aux = append(aux, bam.Aux(bc))
+		aux = append(aux, bam.Aux(qt))
+	}
+	if len(*aln.read_group) > 0 {
+		rg := auxify_string([]byte("RG"), []byte(*aln.read_group))
+		aux = append(aux, bam.Aux(rg))
+	}
+	if aln.mapq_data != nil {
+
+		xs := auxify_int("XS", int(aln.mapq_data.second_best_score))
+		aux = append(aux, bam.Aux(xs))
+		as = auxify_int("AS", int(aln.mapq_data.score))
+		xc_string := ""
+		if aln.mapq_data.second_best != nil {
+			mismatchReadLocs := aln.mapq_data.second_best.mismatchReadLocs
+			mismatchLocs := aln.mapq_data.second_best.mismatchLocs
+			for i := 0; i < len(mismatchReadLocs); i++ {
+				readLoc := mismatchReadLocs[i]
+				refLoc := mismatchLocs[i]
+				xc_string += strconv.FormatInt(int64(refLoc), 10) + "," + strconv.FormatInt(int64(readLoc), 10) + ",1;"
+			}
+		}
+		xc := auxify_string([]byte("XC"), []byte(xc_string))
+		aux = append(aux, bam.Aux(xc))
+		ac_string := ""
+		mismatchReadLocs := aln.mismatchReadLocs
+		mismatchLocs := aln.mismatchLocs
+		for i := 0; i < len(mismatchReadLocs); i++ {
+			readLoc := mismatchReadLocs[i]
+			refLoc := mismatchLocs[i]
+			ac_string += strconv.FormatInt(int64(refLoc), 10) + "," + strconv.FormatInt(int64(readLoc), 10) + ",1;"
+		}
+		ac := auxify_string([]byte("AC"), []byte(ac_string))
+		aux = append(aux, bam.Aux(ac))
+	}
+	aux = append(aux, bam.Aux(as))
+	second_best_active_molecule := 0
+	if aln.mapq_data != nil && aln.mapq_data.second_best != nil && aln.mapq_data.second_best.active_molecule {
+		second_best_active_molecule = 1
+	}
+	xm := auxify_string([]byte("XM"), []byte(strconv.FormatInt(int64(second_best_active_molecule), 10)))
+	aux = append(aux, bam.Aux(xm))
+	active_molecule := "0"
+	if aln.active_molecule {
+		active_molecule = "1"
+	}
+	am := auxify_string([]byte("AM"), []byte(active_molecule))
+	aux = append(aux, bam.Aux(am))
+	tandem := 0
+	if aln.mapq_data != nil && aln.mapq_data.second_best != nil && aln.molecule_id == aln.mapq_data.second_best.molecule_id {
+		tandem = 1
+	}
+	xt := auxify_int("XT", tandem)
+	aux = append(aux, bam.Aux(xt))
+
+	var secondaryAlignment *Alignment
+	if aln.secondary != nil {
+		secondaryAlignment = aln.secondary
+	} else if aln.primary != nil {
+		secondaryAlignment = aln.primary
+	}
+	if secondaryAlignment != nil && secondaryAlignment.pos > -1 {
+		var strand string
+		cigarBytes := secondaryAlignment.cigar
+		if secondaryAlignment.reversed {
+			strand = "-"
+			cigarBytes = reverseCigar(cigarBytes)
+		} else {
+			strand = "+"
+		}
+		cigar := ""
+		indelLength := 0
+		for cig := 0; cig < len(cigarBytes); cig += 2 {
+			cigChar := ""
+			if cigarBytes[cig] == 3 && aln.secondary != nil {
+				cigChar = "H"
+			} else {
+				cigChar = cigarCharacter[cigarBytes[cig]]
+			}
+			if cigarBytes[cig] == 1 || cigarBytes[cig] == 2 {
+				indelLength += int(cigarBytes[cig+1])
+			}
+			cigar += strconv.FormatInt(int64(cigarBytes[cig+1]), 10) + cigChar
+		}
+		secondaryAlignmentString := []byte(secondaryAlignment.contig + "," + strconv.FormatInt(int64(secondaryAlignment.pos), 10) + "," + strand + "," + cigar + "," + strconv.FormatInt(int64(secondaryAlignment.mapq), 10) + "," + strconv.FormatInt(int64(len(secondaryAlignment.mismatchLocs)+indelLength), 10) + ";")
+		sa := auxify_string([]byte("SA"), secondaryAlignmentString)
+		aux = append(aux, bam.Aux(sa))
+	}
 	if debugTags && aln.mapq_data != nil {
 		cp := auxify_string([]byte("CP"), []byte(strconv.FormatInt(int64(aln.mapq_data.copies), 10)))
 		cm := auxify_string([]byte("CM"), []byte(strconv.FormatInt(int64(aln.mapq_data.copies_in_active_molecules), 10)))

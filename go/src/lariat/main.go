@@ -21,27 +21,28 @@ var debugPrintMove = flag.Bool("debugPrintMove", false, "print full debug for mo
 var genome = flag.String("genome", "", "Genome FASTA path")
 var centromeres = flag.String("centromeres", "", "tsv with CEN<chrname> <chrname> <start> <stop>, other rows will be ignored")
 var trim_length = flag.Int("trim_length", 0, "trim this many bases from the beginning of read1, put in TX and QX for quals in the bam")
+var firstChunk = flag.Bool("first_chunk", false, "First chunk of multi-chunk read processing (first chunk receives special BAM headers")
 
 func main() {
-    flag.Parse()
+	flag.Parse()
 
-    args := inference.LariatArgs{
-            Reads: reads,
-            Improper_pair_penalty: improper_pair_penalty,
-            SIMULATED_DATA: SIMULATED_DATA,
-            Output: output,
-            Read_groups: read_groups,
-            Sample_id: sample_id,
-            Threads: threads,
-            Max_bcs: max_bcs,
-            DEBUG: DEBUG,
-            PositionChunkSize: positionChunkSize,
-            DebugTags: debugTags,
-            DebugPrintMove: debugPrintMove,
-            Genome: genome,
-            Centromeres: centromeres,
-            Trim: trim_length,
-        }
-    inference.Lariat(args)
+	args := inference.LariatArgs{
+		Reads: reads,
+		Improper_pair_penalty: improper_pair_penalty,
+		SIMULATED_DATA:        SIMULATED_DATA,
+		Output:                output,
+		Read_groups:           read_groups,
+		Sample_id:             sample_id,
+		Threads:               threads,
+		Max_bcs:               max_bcs,
+		DEBUG:                 DEBUG,
+		PositionChunkSize:     positionChunkSize,
+		DebugTags:             debugTags,
+		DebugPrintMove:        debugPrintMove,
+		Genome:                genome,
+		Centromeres:           centromeres,
+		Trim:                  trim_length,
+		FirstChunk:            firstChunk,
+	}
+	inference.Lariat(args)
 }
-
