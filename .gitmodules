@@ -1,9 +1,6 @@
 [submodule "go/src/gobwa/bwa"]
 	path = go/src/gobwa/bwa
 	url = https://github.com/lh3/bwa.git
-[submodule "go/src/github.com/davecheney/profile"]
-	path = go/src/github.com/davecheney/profile
-	url = https://github.com/davecheney/profile.git
 [submodule "go/src/code.google.com/p/biogo.bam"]
 	path = go/src/code.google.com/p/biogo.bam
-	url = https://github.com/10XGenomics/hts.git
+	url = git@github.com:10XDev/biogo.bam.git

@@ -108,24 +108,24 @@ func GetSplitAlignment(primary *Alignment, alignments []*Alignment, centromeres 
 	var mapq float64
 
 	/* Estimate the mapq score by comparing the best and second-best candidates */
-    second_best := scoreAlignment(primary,nil,0.0) + psuedoCountAlignmentScore(candidates[0].alignment,0.0)
+	second_best := scoreAlignment(primary, nil, 0.0) + psuedoCountAlignmentScore(candidates[0].alignment, 0.0)
 	if len(candidates) > 1 {
 		mapq = float64(candidates[0].score - candidates[1].score)
-        second_best = scoreAlignment(primary, candidates[1].alignment, 0.0)
+		second_best = scoreAlignment(primary, candidates[1].alignment, 0.0)
 	} else {
 		mapq = float64(candidates[0].score)
 	}
 
-    centromereRegion, ok := centromeres[c.contig]
-    start := -1
-    end := -1
-    if ok {
-        start = centromereRegion.start
-        end = centromereRegion.end
-    }
-    if c.pos > int64(start) && c.pos <= int64(end) {
-        mapq = 0.0
-    }
+	centromereRegion, ok := centromeres[c.contig]
+	start := -1
+	end := -1
+	if ok {
+		start = centromereRegion.start
+		end = centromereRegion.end
+	}
+	if c.pos > int64(start) && c.pos <= int64(end) {
+		mapq = 0.0
+	}
 
 	if mapq > 60 {
 		mapq = 60
@@ -150,9 +150,9 @@ func CheckSplitReads(reads [][]*Alignment, centromeres map[string]Region) {
 		}
 		split, second_best := GetSplitAlignment(active, readArray, centromeres)
 		active.secondary = split
-        if split != nil {
-            split.mapq_data = &MapQData{second_best_score: second_best, score: scoreAlignment(split, active.mate_alignment, 0.0) }
-            split.primary = active
-        }
+		if split != nil {
+			split.mapq_data = &MapQData{second_best_score: second_best, score: scoreAlignment(split, active.mate_alignment, 0.0)}
+			split.primary = active
+		}
 	}
 }

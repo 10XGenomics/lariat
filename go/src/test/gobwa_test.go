@@ -10,7 +10,7 @@ import (
 
 func TestGobwa1(t *testing.T) {
 
-    arena := gobwa.NewArena()
+	arena := gobwa.NewArena()
 	ref := gobwa.GoBwaLoadReference("inputs/phix/PhiX.fa")
 	Check(t, ref != nil, "a")
 	settings := gobwa.GoBwaAllocSettings()
