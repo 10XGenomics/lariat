@@ -1,0 +1,3 @@
+*.bam*
+go/bin
+go/pkg
