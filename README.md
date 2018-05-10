@@ -7,7 +7,11 @@ Lariat is based on the original RFA method developed by Alex Bishara, Yuling Liu
 Lariat generates candidate alignments by calling the BWA C API, then performs the RFA inference to select the final mapping position and MAPQ.
 
 ## Usage Notes: 
-* Lariat currently requires Go 1.3
+
+*NOTE*: If you just want to get Lariat-aligned BAM files from Chromium Linked-Read data, you can run the ALIGN pipeline in [Long Ranger 2.2](https://support.10xgenomics.com/genome-exome/software/downloads/latest). It runs the FASTQ processing and alignment steps only.
+
+
+* Lariat currently requires Go 1.5
 * Lariat currently requires a non standard format for input reads. We recommend using the Lariat build bundled with the 10X Genomics Long Ranger software (http://software.10xgenomics.com/)
 
 Please contact us if you're interested in using Lariat independently of the Long Ranger pipeline.
