@@ -17,6 +17,8 @@ Lariat generates candidate alignments by calling the BWA C API, then performs th
 Please contact us if you're interested in using Lariat independently of the Long Ranger pipeline.
 
 ## Build notes:
+In the lariat directory, run `git submodule --init --recursive` to ensure you've checked out the BWA submodule.
+
 Make sure you have a working Go installation (version >= 1.9.2). `go version` should return something like "go version go1.9.2 linux/amd64"
 
 From the root of the repo:
