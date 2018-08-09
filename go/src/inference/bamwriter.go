@@ -496,18 +496,32 @@ func (b *BAMWriter) AppendBam(aln *Alignment, primary *Alignment, debugTags bool
 		aux = append(aux, bam.Aux(sa))
 	}
 	if debugTags && aln.mapq_data != nil {
+		// NOTE: these statistics generally refer to the configuration of the active molecules after the 
+		// Lariat optimization process has finished.
+
+		// Total number of alignments returned by BWA
 		cp := auxify_string([]byte("CP"), []byte(strconv.FormatInt(int64(aln.mapq_data.copies), 10)))
+		// number of alignments in active molecules
 		cm := auxify_string([]byte("CM"), []byte(strconv.FormatInt(int64(aln.mapq_data.copies_in_active_molecules), 10)))
+		// number of unique active molecules
 		cu := auxify_string([]byte("CU"), []byte(strconv.FormatInt(int64(aln.mapq_data.unique_molecules_active), 10)))
+		// Alignments outside active molecules
 		cs := auxify_string([]byte("CS"), []byte(strconv.FormatInt(int64(aln.mapq_data.copies_outside_active_molecules), 10)))
+		// Total number of active alignments in the molecule containing the alignment
 		rd := auxify_string([]byte("RD"), []byte(strconv.FormatInt(int64(aln.mapq_data.reads_in_molecule), 10)))
+		// Alignment of the read-pair forms a 'proper' read-pair: reads have the correct relative orientation & distance.
 		pp := auxify_string([]byte("PP"), []byte(strconv.FormatBool(aln.is_proper)))
+		// A string representation of the alignments for this read that fall in active molecules.
 		aa := auxify_string([]byte("AA"), []byte(aln.mapq_data.active_alignments_in_molecules))
+		// Confidence score for the existence of the molecule containing this alignment
 		mc := auxify_string([]byte("MC"), []byte(strconv.FormatFloat(float64(aln.molecule_confidence), 'f', 6, 64)))
 		ms := auxify_string([]byte("MS"), []byte(strconv.FormatFloat(float64(aln.sum_move_probability_change), 'f', 6, 64)))
+		// Mate alignment score
 		ps := auxify_string([]byte("PS"), []byte(strconv.FormatInt(int64(primary.mate_alignment.score), 10)))
 		pl := auxify_string([]byte("PL"), []byte(strconv.FormatFloat(float64(primary.mate_alignment.log_alignment_probability), 'f', 6, 64)))
+		// Count of alignment operations in this alignment
 		ac := auxify_string([]byte("AC"), []byte("Match:"+strconv.FormatInt(int64(aln.matches), 10)+":Mismatches:"+strconv.FormatInt(int64(aln.mismatches), 10)+":Indels:"+strconv.FormatInt(int64(aln.indels), 10)+":soft_clipped:"+strconv.FormatInt(int64(aln.soft_clipped), 10)))
+		// Count of alignment operations in the mate of this alignment
 		pc := auxify_string([]byte("PC"), []byte("Match:"+strconv.FormatInt(int64(primary.mate_alignment.matches), 10)+":Mismatches:"+strconv.FormatInt(int64(primary.mate_alignment.mismatches), 10)+":Indels:"+strconv.FormatInt(int64(primary.mate_alignment.indels), 10)+":soft_clipped:"+strconv.FormatInt(int64(primary.mate_alignment.soft_clipped), 10)))
 		if aln.mapq_data.second_best != nil {
 			second_best_log_probability := auxify_string([]byte("XL"), []byte(strconv.FormatFloat(aln.mapq_data.second_best.log_alignment_probability, 'f', 6, 64)))
