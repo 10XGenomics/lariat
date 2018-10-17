@@ -48,4 +48,4 @@ Lariat requires input data in a non-standard FASTQ-like format. Each read-pair i
 Read pairs must be sorted by the 10X barcode string. The 10X barcode string is of the form 'ACGTACGTACGTAC-1'. 
 
 ## License
-Lariat is distributed under the [GPLv3](http://www.gnu.org/licenses/gpl-3.0.en.html). Lariat links to [BWA](https://github.com/lh3/bwa) at the object level. Lariat include the BWA source code via git submodule. BWA is licensed also licensed under the GPLv3. 
+Lariat is distributed under the MIT license. Lariat links to [BWA](https://github.com/lh3/bwa) at the object level. Lariat include the BWA source code via git submodule. Lariat links to the Apache2 branch of the BWA repo, which is licensed under the Apache2 license.
