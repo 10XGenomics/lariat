@@ -3,4 +3,4 @@
 	url = https://github.com/lh3/bwa.git
 [submodule "go/src/code.google.com/p/biogo.bam"]
 	path = go/src/code.google.com/p/biogo.bam
-	url = git@github.com:10XDev/biogo.bam.git
+	url = https://github.com/10XGenomics/hts.git
